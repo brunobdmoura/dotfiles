@@ -7,3 +7,9 @@
 [submodule "rofi"]
 	path = rofi
 	url = https://github.com/BrunoBMoura/rofi
+[submodule "wezterm"]
+	path = wezterm
+	url = git@github.com:BrunoBMoura/wezterm.git
+[submodule "awesome"]
+	path = awesome
+	url = git@github.com:BrunoBMoura/awesome.git
