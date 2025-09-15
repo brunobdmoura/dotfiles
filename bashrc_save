@@ -1,6 +1,4 @@
-#
 # ~/.bashrc
-#
 
 [[ $- != *i* ]] && return
 
@@ -65,15 +63,13 @@ alias cclk='tty-clock -scb'
 alias cp='cp -i'
 alias df='df -h'
 alias free='free -m'
-alias ll='exa --icons --group-directories-first -Fla'
-alias rmvdep='sudo pacman -R $(pacman -Qtdq)'
+alias ll='exa --icons --group-directories-first -la'
 alias gitl="git log --graph --pretty=format:'%C(yellow)%h%x09%Creset%C(cyan)%C(bold)%ad%Creset %C(yellow)%cn%Creset  %C(green)%Creset %s' --date=default"
 alias nashrc='nvim ~/.bashrc'
 alias sashrc='source ~/.bashrc'
-alias ifor='rofi -show drun -show-icons'
+alias kd="fzf --ansi --preview-window 'right:60%' --preview 'bat --color=always --theme=base16-256 --style=header,grid --line-range :300 {}'"
 
 alias cconf='cd ~/.config'
-alias cdev='cd ~/Development'
 alias ..='cd ..'
 alias ...='cd ../..'
 alias ....='cd ../../..'
@@ -88,17 +84,13 @@ git_branch() {
   git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/[\1]/'
 }
 
-main="\[\033[01;38;5;144m\]"
-secondary="\[\033[01;38;5;173m\]"
-insider="\[\033[01;38;5;230m\]"
-insider_non_bold="\[\033[00;38;5;230m\]"
-export PS1="$main┌─[\u@\h ($secondary\t$main) $insider\w$main] $secondary\$(git_branch)$main\n$main└╴\$ $insider_non_bold"
+main="\[\033[01;38;5;010m\]"
+secondary="\[\033[01;38;5;13m\]"
+insider="\[\033[01;38;5;14m\]"
+insider_non_bold="\[\033[00;38;5;015m"
 #export PS1="$main┌─[\u ($secondary\t$main) $insider\w$main] $secondary\$(git_branch)$main\n$main└╴\$ $insider_non_bold"
-
-. "$HOME/.cargo/env"
-
+export PS1="$main[\u ($secondary\t$main) $insider\w$main] $secondary\$(git_branch)$main\n$main\$ $insider_non_bold"
 
 # BEGIN_KITTY_SHELL_INTEGRATION
 if test -n "$KITTY_INSTALLATION_DIR" -a -e "$KITTY_INSTALLATION_DIR/shell-integration/bash/kitty.bash"; then source "$KITTY_INSTALLATION_DIR/shell-integration/bash/kitty.bash"; fi
 # END_KITTY_SHELL_INTEGRATION
-
