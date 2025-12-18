@@ -1,0 +1,7 @@
+# set line-graphics = utf-8
+# "title-focus" is the bottom bar of the active window
+# "title-blur" is the bottom bar of the inactive window
+# "delimiter" is the vertical line between split views (e.g., main vs diff)
+
+color title-focus   white   black   dim
+color title-blur    white   black   dim
