@@ -22,13 +22,21 @@ alias build_src='dpkg-buildpackage -S -I -i -nc -d -sa'
 alias save_rules='git add debian/rules && git commit --amend'
 alias sync_files='rsync -avHP --delete --exclude=.git --exclude=debian'
 
-alias levil='lintian -EviI ../*.deb'
+alias llintian='lintian -EviI ../*.deb'
 alias rcp='rsync -a --info=progress2,name0'
 alias srcp='rsync -a --info=progress2,name0 -e ssh'
 alias dchi='gbp dch --ignore-branch'
 
+lxc_login() {
+    lxc exec "$@" -- bash -c 'su - ubuntu'
+}
+
 lxc_container() {
-    bash ~/Scripts/lxc_container.sh
+    bash ~/Scripts/lxc_container.sh "$@"
+}
+
+mkcd() {
+    mkdir -p "$1" && cd "$1"
 }
 
 # Easier use of data into the clipboard
@@ -158,6 +166,137 @@ log_files() {
     done > "$outfile" && echo "Done. Logged to '$outfile'.";
 }
 
+levil() {
+    # Get the base name from the current directory to prefix the log
+    local DIR_NAME="${PWD##*/}"
+
+    # Define the log directory and ensure it exists
+    local LOG_DIR="../_lintian_logs"
+    mkdir -p "${LOG_DIR}"
+
+    # Generate a unique log file name using a timestamp
+    local TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    local LOG_FILE="${LOG_DIR}/${DIR_NAME}_lintian_${TIMESTAMP}.log"
+
+    echo "Starting Lintian analysis..."
+
+    # Clear/create the log file
+    > "${LOG_FILE}"
+
+    # Define the extensions based on the previous discussion
+    local EXTENSIONS=("ddeb deb" "changes" "dsc" "udeb")
+
+    for EXT in "${EXTENSIONS[@]}"; do
+        # Safely find files matching the extension in the upper directory
+        shopt -s nullglob
+        local TARGET_FILES=( ../*."${EXT}" )
+        shopt -u nullglob
+
+        # Write the section header
+        echo "# .${EXT} files:" >> "${LOG_FILE}"
+
+        # If files exist, run lintian and append output; otherwise, note they are missing
+        if [ ${#TARGET_FILES[@]} -gt 0 ]; then
+            # We redirect standard error (2>&1) just in case lintian throws warnings to stderr
+            lintian -EviI "${TARGET_FILES[@]}" >> "${LOG_FILE}" 2>&1
+        else
+            echo "# No .${EXT} files found in the upper directory." >> "${LOG_FILE}"
+        fi
+
+        # Add a blank line for readability between sections
+        echo "" >> "${LOG_FILE}"
+    done
+
+    echo "--- Lintian analysis complete (Log: ${LOG_FILE}) ---"
+}
+
+clean_deb_build() {
+    # Check if we are inside a valid Debian source directory
+    if [ ! -f "debian/changelog" ]; then
+        echo "Error: 'debian/changelog' not found."
+        echo "Please run this command from the root of your Debian package source directory."
+        return 1
+    fi
+
+    # Extract the source package name dynamically
+    local PKG_NAME=$(dpkg-parsechangelog -S Source)
+
+    echo "Scanning for build artifacts of '${PKG_NAME}' in ../"
+
+    # Enable nullglob so the arrays evaluate to empty if no files match
+    shopt -s nullglob
+    local ARTIFACTS=(
+        "../"*.deb
+        "../${PKG_NAME}_"*.buildinfo
+        "../${PKG_NAME}_"*.changes
+        # Including source files just in case you ever build without '-b'
+        "../${PKG_NAME}_"*.dsc
+        "../${PKG_NAME}_"*.tar.*
+    )
+    shopt -u nullglob
+
+    # Check if any files were found
+    if [ ${#ARTIFACTS[@]} -eq 0 ]; then
+        echo "No build artifacts found to remove."
+        return 0
+    fi
+
+    # Loop through and remove the matched files
+    for FILE in "${ARTIFACTS[@]}"; do
+        echo "Removing: ${FILE}"
+        rm -f "${FILE}"
+    done
+
+    echo "--- Cleanup complete ---"
+}
+
+rebase() {
+    # Check if a number was provided
+    if [ -z "$1" ]; then
+        echo "Error: Please provide the number of commits."
+        echo "Usage: rebase <N>"
+        return 1
+    fi
+
+    # Execute the interactive rebase
+    git rebase -i HEAD~"$1"
+}
+
+commit_changelog() {
+    local changelog
+    changelog="$(git rev-parse --show-toplevel)/debian/changelog"
+
+    if [[ ! -f "$changelog" ]]; then
+        echo "Error: debian/changelog not found" >&2
+        return 1
+    fi
+
+    local first_line
+    first_line=$(head -n1 "$changelog")
+
+    local version
+    version=$(echo "$first_line" | sed -n 's/.*(\([^)]*\)).*/\1/p')
+
+    local target
+    target=$(echo "$first_line" | sed -n 's/.*) \([^;]*\);.*/\1/p')
+
+    local target_cap
+    target_cap="$(echo "${target:0:1}" | tr '[:lower:]' '[:upper:]')${target:1}"
+
+    local lp_bugs
+    lp_bugs=$(awk '/^[a-z]/{p=1} p && /^ -- /{exit} p' "$changelog" | grep -oP 'LP: #\K[0-9]+' | sed 's/^/LP: #/')
+
+    local body="Add the changelog entry to the package on Ubuntu ${target_cap}"
+    if [[ -n "$lp_bugs" ]]; then
+        body="${body}
+
+${lp_bugs}
+Gbp-dch: full"
+    fi
+
+    git commit -m "d/changelog: ${version}" -m "${body}"
+}
+
 # Primary Prompt Colors (Bold)
 readonly ENV_COLOR="\[\033[01;38;5;011m\]" # Yellow/Orange
 readonly MAIN_COLOR="\[\033[01;38;5;010m\]" # Bright Green
@@ -187,7 +326,8 @@ shell_prompt() {
     PS1+="${INSIDER_COLOR}\w${MAIN_COLOR}"
     PS1+="${git_info}"
     PS1+="${env_info}"
-    PS1+="\n${MAIN_COLOR}\$ "
+    #PS1+="\n${MAIN_COLOR}\$ "
+    PS1+="\n "
     PS1+="${NON_BOLD_COLOR}"
 }
 
@@ -196,6 +336,12 @@ export EDITOR='nvim'
 export DEBEMAIL='bruno.moura@canonical.com'
 export DEBFULLNAME='Bruno Bernardo de Moura'
 PROMPT_COMMAND=shell_prompt
+
+set -o vi
+bind 'set show-mode-in-prompt on'
+bind 'set vi-cmd-mode-string "\1\033[00;38;5;010m\2$"'
+bind 'set vi-ins-mode-string "\1\033[01;38;5;011m\2$"'
+bind -m vi-insert '"\C-w": unix-word-rubout'
 
 # Don't forget to add this to the .bashrc file:
 # if [ -f ~/user.bashrc ]; then
