@@ -4,14 +4,16 @@ set -e
 PREFIX="daily"
 NAME="generic"
 PPA_LIST=""
+EPHEMERAL=false
 
-BASHRC_PATH="/<path>/<to>/<bashrc>"
-HOME_DIR="/<path>/<to>/<homedir>"=
+BASHRC_PATH="/home/bruno/RemoteAccessConfig/.bashrc"
+HOME_DIR="/home/bruno/Workspace"
 PACKAGES="eza neovim tig"
 
 usage() {
-    echo "Usage: $0 --version <version> [--name <name>] [--prefix <prefix>] [--ppas \"<ppa-list>\"] [--bashrc <path>] [--home <path>]"
+    echo "Usage: $0 --version <version> [--name <name>] [--prefix <prefix>] [--ppas \"<ppa-list>\"] [--bashrc <path>] [--home <path>] [--ephem]"
     echo "Example: $0 --version 24.04 --ppas \"ppa:neovim-ppa/unstable ppa:ondrej/php\""
+    echo "Use --ephem to delete the container automatically after you log out of it."
     exit 1
 }
 
@@ -23,6 +25,7 @@ while [[ "$#" -gt 0 ]]; do
         --ppas)    PPA_LIST="$2"; shift ;;
         --bashrc)  BASHRC_PATH="$2"; shift ;;
         --home)    HOME_DIR="$2"; shift ;;
+        --ephem)   EPHEMERAL=true ;;
         -h|--help) usage ;;
         *) echo "Unknown parameter passed: $1"; usage ;;
     esac
@@ -60,3 +63,7 @@ $LXC_EXEC sudo apt install -y $PACKAGES
 $LXC_EXEC sudo apt clean
 
 $LXC_EXEC su --login ubuntu
+
+if [ "$EPHEMERAL" = true ]; then
+    lxc delete "$LXC_NAME" --force
+fi
