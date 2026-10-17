@@ -1,0 +1,315 @@
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# don't put duplicate lines or lines starting with space in the history.
+HISTCONTROL=ignoreboth
+HISTSIZE=100000
+HISTFILESIZE=200000
+
+# append to the history file, don't overwrite it
+shopt -s histappend
+
+# check the window size after each command and, if necessary,
+# update the values of LINES and COLUMNS.
+shopt -s checkwinsize
+
+# make less more friendly for non-text input files, see lesspipe(1)
+[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+# set variable identifying the chroot you work in (used in the prompt below)
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
+
+# set a fancy prompt (non-color, unless we know we "want" color)
+case "$TERM" in
+    xterm-color|*-256color) color_prompt=yes;;
+esac
+
+if [ -n "$force_color_prompt" ]; then
+    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+    color_prompt=yes
+    else
+    color_prompt=
+    fi
+fi
+
+if [ "$color_prompt" = yes ]; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+else
+    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+fi
+unset color_prompt force_color_prompt
+
+# If this is an xterm set the title to user@host:dir
+case "$TERM" in
+xterm*|rxvt*)
+    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
+    ;;
+*)
+    ;;
+esac
+
+# enable color support of ls and also add handy aliases
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
+fi
+
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias .....='cd ../../../..'
+
+alias ll='ls -lah'
+
+alias gitclean='git clean -f -x -d; git reset --hard'
+alias gitl='git log --graph --oneline'
+
+# enable programmable completion features (you don't need to enable
+# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
+# sources /etc/bash.bashrc).
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+
+install_deps() {
+    sudo apt-get build-dep . -y
+}
+
+build_src() {
+    dpkg-buildpackage -S -I -i -nc -d -sa
+}
+
+build_bin_with_profile() {
+    # 1. Accept an optional build profile and an optional custom log name
+    local BUILD_PROFILE="$1"
+    local CUSTOM_LOG_NAME="$2"
+
+    # Get the base name from the current directory
+    local DIR_NAME="${PWD##*/}"
+
+    # Define the new log directory and ensure it exists
+    local LOG_DIR="../_dpkg-build-logs"
+    mkdir -p "${LOG_DIR}"
+
+    # Define the log file pattern to catch both old format and new format with time
+    local LOG_PATTERN="${LOG_DIR}/${DIR_NAME}_build_*.log"
+
+    # Find the highest existing build number (N)
+    local MAX_N=0
+
+    shopt -s nullglob
+    local EXISTING_LOGS=( ${LOG_PATTERN} )
+    shopt -u nullglob
+
+    if [ ${#EXISTING_LOGS[@]} -gt 0 ]; then
+        for LOG in "${EXISTING_LOGS[@]}"; do
+            local TEMP="${LOG##*${DIR_NAME}_build_}"
+            TEMP="${TEMP%.log}"
+            local N_STR="${TEMP%%_*}"
+            if [[ "$N_STR" =~ ^[0-9]+$ ]]; then
+                N_STR=$((10#$N_STR))
+                if [ "$N_STR" -gt "$MAX_N" ]; then
+                    MAX_N="$N_STR"
+                fi
+            fi
+        done
+    fi
+
+    local NEW_N=$((MAX_N + 1))
+
+    local TEMP_LOG
+    local FINAL_LOG
+
+    if [ -n "$CUSTOM_LOG_NAME" ]; then
+        FINAL_LOG="${LOG_DIR}/${CUSTOM_LOG_NAME}"
+        TEMP_LOG="${FINAL_LOG}.running"
+    else
+        TEMP_LOG="${LOG_DIR}/${DIR_NAME}_build_${NEW_N}_running.log"
+    fi
+
+    # 2. Build the dpkg-buildpackage argument list, adding -P if a profile was given
+    local BUILD_ARGS=(-b -uc -us)
+    if [ -n "$BUILD_PROFILE" ]; then
+        BUILD_ARGS+=(-P"${BUILD_PROFILE}")
+    fi
+
+    echo "Starting build #${NEW_N}${BUILD_PROFILE:+ (profile: ${BUILD_PROFILE})}..."
+
+    local START_TIME=$(date +%s)
+
+    dpkg-buildpackage "${BUILD_ARGS[@]}" 2>&1 | tee "${TEMP_LOG}"
+    local EXIT_CODE=${PIPESTATUS[0]}
+
+    local END_TIME=$(date +%s)
+    local DURATION=$((END_TIME - START_TIME))
+
+    local HOURS=$((DURATION / 3600))
+    local MINS=$(( (DURATION % 3600) / 60 ))
+    local SECS=$((DURATION % 60))
+    local TIME_STR=""
+
+    if [ $HOURS -gt 0 ]; then TIME_STR="${HOURS}h"; fi
+    if [ $MINS -gt 0 ]; then TIME_STR="${TIME_STR}${MINS}m"; fi
+    TIME_STR="${TIME_STR}${SECS}s"
+
+    if [ -z "$CUSTOM_LOG_NAME" ]; then
+        FINAL_LOG="${LOG_DIR}/${DIR_NAME}_build_${NEW_N}_${TIME_STR}.log"
+    fi
+
+    mv "${TEMP_LOG}" "${FINAL_LOG}"
+
+    echo "--- Build finished in ${TIME_STR} (Log: ${FINAL_LOG}) ---"
+
+    return $EXIT_CODE
+}
+
+
+build_bin() {
+    # 1. Accept an optional custom log name
+    local CUSTOM_LOG_NAME="$1"
+
+    # Get the base name from the current directory
+    local DIR_NAME="${PWD##*/}"
+
+    # Define the new log directory and ensure it exists
+    local LOG_DIR="../_dpkg-build-logs"
+    mkdir -p "${LOG_DIR}"
+
+    # Define the log file pattern to catch both old format and new format with time
+    local LOG_PATTERN="${LOG_DIR}/${DIR_NAME}_build_*.log"
+
+    # Find the highest existing build number (N)
+    local MAX_N=0
+
+    shopt -s nullglob
+    local EXISTING_LOGS=( ${LOG_PATTERN} )
+    shopt -u nullglob
+
+    if [ ${#EXISTING_LOGS[@]} -gt 0 ]; then
+        for LOG in "${EXISTING_LOGS[@]}"; do
+            # Remove the directory path and prefix up to "_build_"
+            local TEMP="${LOG##*${DIR_NAME}_build_}"
+
+            # Remove the .log extension
+            TEMP="${TEMP%.log}"
+
+            # Extract the first number between underscores
+            local N_STR="${TEMP%%_*}"
+
+            # Check if extracted part is a valid integer
+            if [[ "$N_STR" =~ ^[0-9]+$ ]]; then
+                # Strip leading zeros to prevent octal interpretation
+                N_STR=$((10#$N_STR))
+                if [ "$N_STR" -gt "$MAX_N" ]; then
+                    MAX_N="$N_STR"
+                fi
+            fi
+        done
+    fi
+
+    # Calculate the new build number
+    local NEW_N=$((MAX_N + 1))
+
+    # Define temporary and final log variables
+    local TEMP_LOG
+    local FINAL_LOG
+
+    # 2. Determine log names based on whether a custom name was provided
+    if [ -n "$CUSTOM_LOG_NAME" ]; then
+        FINAL_LOG="${LOG_DIR}/${CUSTOM_LOG_NAME}"
+        TEMP_LOG="${FINAL_LOG}.running"
+    else
+        TEMP_LOG="${LOG_DIR}/${DIR_NAME}_build_${NEW_N}_running.log"
+    fi
+
+    echo "Starting build #${NEW_N}..."
+
+    # Capture start time (seconds since epoch)
+    local START_TIME=$(date +%s)
+
+    # Run the build and pipe to temp log
+    dpkg-buildpackage -b -uc -us 2>&1 | tee "${TEMP_LOG}"
+    local EXIT_CODE=${PIPESTATUS[0]}
+
+    # Capture end time and calculate duration
+    local END_TIME=$(date +%s)
+    local DURATION=$((END_TIME - START_TIME))
+
+    # Format the duration (e.g., 1h5m30s or just 45s)
+    local HOURS=$((DURATION / 3600))
+    local MINS=$(( (DURATION % 3600) / 60 ))
+    local SECS=$((DURATION % 60))
+    local TIME_STR=""
+
+    if [ $HOURS -gt 0 ]; then TIME_STR="${HOURS}h"; fi
+    if [ $MINS -gt 0 ]; then TIME_STR="${TIME_STR}${MINS}m"; fi
+    TIME_STR="${TIME_STR}${SECS}s"
+
+    # If no custom name was provided, generate the final log name with the time duration
+    if [ -z "$CUSTOM_LOG_NAME" ]; then
+        FINAL_LOG="${LOG_DIR}/${DIR_NAME}_build_${NEW_N}_${TIME_STR}.log"
+    fi
+
+    # Rename the temporary log to the final name
+    mv "${TEMP_LOG}" "${FINAL_LOG}"
+
+    echo "--- Build finished in ${TIME_STR} (Log: ${FINAL_LOG}) ---"
+
+    # Return the original exit code so the script knows if the build failed
+    return $EXIT_CODE
+}
+
+# Primary Prompt Colors (Bold)
+readonly ENV_COLOR="\[\033[01;38;5;011m\]" # Yellow/Orange
+readonly SECONDARY_COLOR="\[\033[01;38;5;010m\]" # Bright Green
+readonly MAIN_COLOR="\[\033[01;38;5;013m\]" # Magenta/Purple
+readonly INSIDER_COLOR="\[\033[01;38;5;014m\]" # Cyan
+readonly NON_BOLD_COLOR="\[\033[00;38;5;015m\]" # Bright White/Standard Reset
+readonly NC="\[\033[0m\]" # Standard ANSI Reset
+
+_get_virtualenv_info() {
+    if [ -n "$VIRTUAL_ENV" ]; then
+        echo "${ENV_COLOR}[`basename "$VIRTUAL_ENV"`]${MAIN_COLOR}"
+    fi
+}
+
+_get_git_info() {
+    local git_output
+    git_output=$(git rev-parse --abbrev-ref HEAD 2>/dev/null )
+
+    if [ -n "$git_output" ]; then
+        echo " ${SECONDARY_COLOR}(${git_output})${MAIN_COLOR} "
+    else
+        echo " "
+    fi
+}
+
+shell_prompt() {
+    local env_info=$(_get_virtualenv_info)
+    local git_info=$(_get_git_info)
+
+    PS1="${MAIN_COLOR}\u ${NON_BOLD_COLOR}on ${MAIN_COLOR}\h (${SECONDARY_COLOR}\t${MAIN_COLOR}) "
+    PS1+="${INSIDER_COLOR}\w${MAIN_COLOR}"
+    PS1+="${git_info}"
+    PS1+="${env_info}"
+    PS1+="\n${MAIN_COLOR}\$ "
+    PS1+="${NON_BOLD_COLOR}"
+}
+
+export VIRTUAL_ENV_DISABLE_PROMPT=1
+export EDITOR='nvim'
+export DEBEMAIL='bruno.moura@canonical.com'
+export DEBFULLNAME='Bruno B Moura'
+PROMPT_COMMAND=shell_prompt
