@@ -13,14 +13,21 @@ alias ll='exa -lag --icons --group-directories-first'
 alias llt='exa -lag --icons --group-directories-first --tree'
 
 alias gitclean='git clean -f -x -d; git reset --hard'
-alias gitamend='git commit --amend'
-alias gitl='git log --graph --oneline'
-alias gitba='git branch --all | grep -v HEAD | sed "s/.* //" | uniq | fzf --tmux=center,70% --border-label=Branches --style=minimal | xargs git checkout'
-alias gitb='git branch | grep -v HEAD | sed "s/.* //" | uniq | fzf --tmux=center,70% --border-label=Branches --style=minimal | xargs git checkout'
+alias deb_clean='rm *.changes *.upload *.dsc *.buildinfo'
+alias amend='git commit --amend'
+alias log='git log --graph --oneline'
+alias kdba='git branch -a | grep -v HEAD | sed "s/.* //" | uniq | fzf --tmux=center,70% --border-label=Br(all)nches --style=minimal | xargs git checkout'
+alias kdb='git branch | grep -v HEAD | sed "s/.* //" | uniq | fzf --tmux=center,70% --border-label=Branches --style=minimal | xargs git checkout'
+alias give_me_the_cube="ssh -o 'StrictHostKeyChecking=no' -o 'UserKnownHostsFile=/dev/null' 'ubuntu@10.241.6.57'"
+
+commit() {
+    git commit -m "$@"
+}
 
 alias build_src='dpkg-buildpackage -S -I -i -nc -d -sa'
 alias save_rules='git add debian/rules && git commit --amend'
 alias sync_files='rsync -avHP --delete --exclude=.git --exclude=debian'
+alias fh='eval "$(history | sed -E "s/^[[:space:]]*[0-9]+[[:space:]]*//" | fzf --tac --tmux=center,70% --border-label=History --style=minimal)"'
 
 alias llintian='lintian -EviI ../*.deb'
 alias rcp='rsync -a --info=progress2,name0'
@@ -33,6 +40,10 @@ lxc_login() {
 
 lxc_container() {
     bash ~/Scripts/lxc_container.sh "$@"
+}
+
+lp_info() {
+   python3 ~/Scripts/launchpad.py "$@"
 }
 
 mkcd() {
@@ -227,11 +238,12 @@ clean_deb_build() {
     shopt -s nullglob
     local ARTIFACTS=(
         "../"*.deb
+        "../"*.ddeb
+        "../"*.upload
         "../${PKG_NAME}_"*.buildinfo
         "../${PKG_NAME}_"*.changes
         # Including source files just in case you ever build without '-b'
         "../${PKG_NAME}_"*.dsc
-        "../${PKG_NAME}_"*.tar.*
     )
     shopt -u nullglob
 
@@ -262,39 +274,10 @@ rebase() {
     git rebase -i HEAD~"$1"
 }
 
-commit_changelog() {
-    local changelog
-    changelog="$(git rev-parse --show-toplevel)/debian/changelog"
-
-    if [[ ! -f "$changelog" ]]; then
-        echo "Error: debian/changelog not found" >&2
-        return 1
-    fi
-
-    local first_line
-    first_line=$(head -n1 "$changelog")
-
-    local version
-    version=$(echo "$first_line" | sed -n 's/.*(\([^)]*\)).*/\1/p')
-
-    local target
-    target=$(echo "$first_line" | sed -n 's/.*) \([^;]*\);.*/\1/p')
-
-    local target_cap
-    target_cap="$(echo "${target:0:1}" | tr '[:lower:]' '[:upper:]')${target:1}"
-
-    local lp_bugs
-    lp_bugs=$(awk '/^[a-z]/{p=1} p && /^ -- /{exit} p' "$changelog" | grep -oP 'LP: #\K[0-9]+' | sed 's/^/LP: #/')
-
-    local body="Add the changelog entry to the package on Ubuntu ${target_cap}"
-    if [[ -n "$lp_bugs" ]]; then
-        body="${body}
-
-${lp_bugs}
-Gbp-dch: full"
-    fi
-
-    git commit -m "d/changelog: ${version}" -m "${body}"
+commit_was() {
+    wrap-and-sort
+    git add debian
+    git commit -m "debian: wrap-and-sort"
 }
 
 # Primary Prompt Colors (Bold)
