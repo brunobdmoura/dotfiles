@@ -3,5 +3,5 @@
 # "title-blur" is the bottom bar of the inactive window
 # "delimiter" is the vertical line between split views (e.g., main vs diff)
 
-color title-focus   white   black   dim
-color title-blur    white   black   dim
+color title-focus   magenta   black   dim
+color title-blur    magenta   black   dim
